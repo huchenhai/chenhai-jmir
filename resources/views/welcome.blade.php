@@ -8,6 +8,7 @@
         <title>Chenhai Hu</title>
         <!-- Bootstrap Core CSS -->
         <link href="{{ URL::asset('css/bootstrap.min.css') }}" rel="stylesheet">
+        <link href="{{ URL::asset('css/landing.css') }}" rel="stylesheet">
         <script src="{{ URL::asset('js/jquery-3.2.1.min.js') }}"></script>
         <script src="{{ URL::asset('js/bootstrap.min.js') }}"></script>
         <script src="{{ URL::asset('js/dropzone.js') }}"></script>
@@ -29,13 +30,9 @@
         <div class="box">
             <div class="container zone" style="margin-top:10%;">
 
-                <h1><i class="fa fa-file-pdf-o"> Compress PDF</i></h1>
-                <form id="file_form" action="{{url('/compressFile')}}" method="POST" enctype="multipart/form-data">
-
-                    <select name="quality">
-                        <option value="normal">Normal</option>
-                        <option value="black">Black/White</option>
-                    </select>
+                <h1><i class="fa fa-file-o">JMIR File Upload</i></h1>
+                <form id="file_form" action="{{url('/upload')}}" method="POST" enctype="multipart/form-data">
+                    {{ csrf_field() }}
                     <input type="file" id="file" name="file">
 
                 </form>
@@ -53,7 +50,7 @@
 
 
     </div>
-    @push("scripts")
+
     <!-- Custom CSS -->
     <link href="{{ URL::asset('css/landing.css') }}" rel="stylesheet">
     <script>
@@ -63,14 +60,13 @@
             return (new RegExp('(' + exts.join('|').replace(/\./g, '\\.') + ')$')).test(fileName);
         }
         $('#open_btn').on('click',function () {
-            if(!hasExtension('file', ['.pdf']))
-                alert('File type not allowed, pdf only');
+            if(!hasExtension('file', ['.doc','docx']))
+                alert('File type not allowed, doc only');
             else {
                 $(this).text('').attr('style',"background-image:url({{URL::asset('img/142.gif')}}); background-position:center; background-repeat: no-repeat;");
                 $('#file_form').submit();
             }
         });
     </script>
-    @endpush
     </body>
 </html>

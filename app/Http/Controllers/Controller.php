@@ -3,65 +3,131 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-
+use PhpOffice\PhpWord\IOFactory;
+use PhpOffice\PhpWord\Shared\ZipArchive;
 class Controller extends BaseController
 {
     use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
-    public function index(Request $request)
-    {
-        $files = $request->input('files');
-        $filexts = '';
-        if ($handle = @opendir('/srv/candocs/' . $request->id . '/final')) {
-            while (false != ($file = readdir($handle))) {
-                if ($file != '.' && $file != '..') {
-                    $path_parts = pathinfo($file);
-                    $filexts = $path_parts['extension'];
-                    $cmd1 = '';
-                    $cmd2 = '';
-                    $cmd = '';
-                    if ($filexts == 'msg') {
-                        $cmd1 = 'cd /srv/candocs/' . $request->id . '/final && msgconvert /srv/candocs/' . $request->id . '/final/' . $file;
-                        $cmd2 = 'cd /srv/candocs/' . $request->id . '/final && java -jar /opt/emailconverter/emailconverter2.jar /srv/candocs/' . $request->id . '/final/' . $path_parts['filename'] . '.eml';
-                        //shell_exec('cd /srv/candocs/'.$request->id.'/final/');
-                        shell_exec($cmd1);
-                        shell_exec('export DISPLAY=:0');
-                        shell_exec($cmd2);
-                    } elseif ($filexts == 'doc' || $filexts == 'docx') {
-                        $cmd = 'cd /srv/candocs/' . $request->id . '/final && export HOME=/tmp && lowriter --headless --convert-to pdf ' . $file;
-                        shell_exec($cmd);
-                    }
-                }
-            }
-            $listPdf = '';
-            foreach ($files as $fk => $fv) {
-                $listPdf .= $fv . " ";
-            }
-            $listPdf = substr($listPdf, 0, -1);
-            shell_exec('cd /srv/candocs/' . $request->id . '/final && pdftk ' . $listPdf . ' cat output /srv/candocs/' . $request->id . '/' . $request->id . '_final.pdf');
-            closedir($handle);
-        }
-        return $cmd1;
+    public function file(Request $request){
+        //phpinfo();
+        $file = $request->file('file')->store('doc');
+        $path = storage_path($file);
+        dd(file_exists($path));
+        $content = self::read_file_docx($file);
+        dd($path);
+        $images = self::readZippedImages($file);
+        $data = self::readJmirContent($content);
+        return response()->json([
+            'content' => $data,
+            'images' =>$images
+        ]);
     }
-    public function getFilename(Request $request){
-        $id=$request->get('id');
-        if($handle = @opendir('/srv/candocs/'.$id.'/final')){
-            $files=[];
-            while(false != ($file=readdir($handle))){
-                if( $file!='.' && $file!='..' ){
-                    $newfile = preg_replace("/[^a-zA-Z0-9.]/", "", $file);
-                    @chmod('/srv/candocs/'.$id.'/final/'.$file, '0777');
-                    $newfile = pathinfo($newfile, PATHINFO_FILENAME) . '.' . strtolower(pathinfo($newfile, PATHINFO_EXTENSION));
-                    @rename('/srv/candocs/'.$id.'/final/'.$file, '/srv/candocs/'.$id.'/final/'.$newfile);
-                    array_push($files,$file);
+    public function read_file_docx($filename){
+
+        $striped_content = '';
+        $content = '';
+
+        if(!$filename || !file_exists($filename)) return false;
+
+        $zip = zip_open($filename);
+        if (!$zip || is_numeric($zip)) return false;
+
+        while ($zip_entry = zip_read($zip)) {
+
+            if (zip_entry_open($zip, $zip_entry) == FALSE) continue;
+
+            if (zip_entry_name($zip_entry) != "word/document.xml") continue;
+
+            $content .= zip_entry_read($zip_entry, zip_entry_filesize($zip_entry));
+
+            zip_entry_close($zip_entry);
+        }// end while
+
+        zip_close($zip);
+
+        //echo $content;
+        //echo "<hr>";
+        //file_put_contents('1.xml', $content);
+//        $dom = new \DOMDocument();
+//        $dom->loadXML($content);
+//        dd($dom);
+        $content = str_replace('</w:r></w:p></w:tc><w:tc>', " ", $content);
+        $content = str_replace('</w:r></w:p>', "\r\n", $content);
+        $striped_content = strip_tags($content);
+
+        return $striped_content;
+    }
+    public function parseWord($file) {
+        $content = "";
+        $zip = new ZipArchive ( );
+        if ($zip->open ($file) === TRUE ) {
+            for($i = 0; $i < $zip->numFiles; $i ++) {
+                $entry = $zip->getNameIndex ( $i );
+                if (pathinfo ($entry,PATHINFO_BASENAME) == "document.xml") {
+                    $zip->extractTo (pathinfo ($file, PATHINFO_DIRNAME ) . "/" . pathinfo ($file, PATHINFO_FILENAME ), array (
+                        $entry
+                    ) );
+                    $filepath = pathinfo ($file, PATHINFO_DIRNAME ) . "/" . pathinfo ( $file, PATHINFO_FILENAME ) . "/" . $entry;
+                    break;
                 }
             }
-            closedir($handle);
-            return response()->json($files);
+            $zip->close ();
+            return $filepath;
+        } else {
+            echo false;
         }
-        else return response("Failed to open directory",401);
+    }
+    function readZippedImages($filename) {
+        $images = [];
+
+        /*Create a new ZIP archive object*/
+        $zip = new ZipArchive;
+
+        /*Open the received archive file*/
+        if (true === $zip->open($filename)) {
+            for ($i=0; $i<$zip->numFiles;$i++) {
+
+
+                /*Loop via all the files to check for image files*/
+                $zip_element = $zip->statIndex($i);
+
+
+                /*Check for images*/
+                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)",$zip_element['name'])) {
+
+                    array_push($images,base64_encode($zip->getFromIndex($i)));
+                    /*Display images if present by using display.php*/
+
+                }
+            }
+            return $images;
+        }
+    }
+    public function readJmirContent($content){
+        $key = ['Corresponding authors','Background','Objective','Methods','Results','Conclusions','Keywords'];
+        $content = preg_replace("/(^[\r\n]*|[\r\n]+)[\s\t]*[\r\n]+/", "\n", $content);
+        $content_all = preg_split("/((\r?\n)|(\r\n?))/", $content);
+        $array=['Title'=>$content_all[1],'Authors'=>$content_all[2]];
+        foreach($content_all as $line){
+            if($key ==[])
+                break;
+            $k = $this->ifMatch($key,$line);
+            if($k)
+                $array[$k]=substr(strstr($line," "), 1);
+        }
+        return $array;
+    }
+    function ifMatch(&$key,$line){
+        foreach ($key as $v){
+            if(strpos($line,$v.":") === 0) {
+                array_diff($key,array($v));
+                return $v;
+            }
+        }
     }
 
     function downloadPackage($filename){
