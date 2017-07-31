@@ -7,20 +7,19 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\Shared\ZipArchive;
+use Illuminate\Support\Facades\Storage;
 class Controller extends BaseController
 {
     use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
     public function file(Request $request){
         //phpinfo();
         $file = $request->file('file')->store('doc');
-        $path = storage_path($file);
-        dd(file_exists($path));
-        $content = self::read_file_docx($file);
-        dd($path);
-        $images = self::readZippedImages($file);
+        $path = storage_path('app/'.$file);
+        $content = self::read_file_docx($path);
+        $images = self::readZippedImages($path);
         $data = self::readJmirContent($content);
+        Storage::delete($path);
         return response()->json([
             'content' => $data,
             'images' =>$images
@@ -119,6 +118,8 @@ class Controller extends BaseController
             if($k)
                 $array[$k]=substr(strstr($line," "), 1);
         }
+        $table = $this->getTable($content);
+        $array['table']=$table;
         return $array;
     }
     function ifMatch(&$key,$line){
@@ -129,9 +130,23 @@ class Controller extends BaseController
             }
         }
     }
+    function getTable($content){
+        $start = strpos($content,'Table 1.');
+        $end   = strpos($content,'Table 2.');
+        $sub = substr($content,$start,$end-$start);
+        $table  = [];
+        foreach (preg_split("/((\r?\n)|(\r\n?))/", $sub) as $line){
+            preg_match('#[0-9]+$#', $line, $match);
+            if(!empty($match)){
+                $table+=[substr($line,0,-strlen($match[0]))=>$match[0]];
+            }
+        }
+        return $table;
+
+    }
 
     function downloadPackage($filename){
-        $storage_path = storage_path('app/compress');
+        $storage_path = storage_path('app/doc');
         return response()->download($storage_path.'/'.$filename,$filename);
 
     }
